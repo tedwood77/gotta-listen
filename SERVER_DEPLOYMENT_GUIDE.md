@@ -1,6 +1,6 @@
 # 🚀 Server Deployment Guide
 
-Simple guide to deploy Gotta Listen to your server with your own database.
+Simple guide to deploy Gotta Listen to your server with your own database (no Supabase required).
 
 ## 📋 Prerequisites
 
@@ -158,6 +158,7 @@ JWT_SECRET="your-super-long-secret-key-at-least-32-characters-long"
 NEXTAUTH_SECRET="another-long-secret-key"
 NEXTAUTH_URL="https://yourdomain.com"
 NODE_ENV="production"
+GOOGLE_ADSENSE_CLIENT_ID="ca-pub-6988793191718332"
 \`\`\`
 
 For PostgreSQL:
@@ -173,6 +174,7 @@ JWT_SECRET="your-super-long-secret-key-at-least-32-characters-long"
 NEXTAUTH_SECRET="another-long-secret-key"
 NEXTAUTH_URL="https://yourdomain.com"
 NODE_ENV="production"
+GOOGLE_ADSENSE_CLIENT_ID="ca-pub-6988793191718332"
 \`\`\`
 
 ### Initialize Database

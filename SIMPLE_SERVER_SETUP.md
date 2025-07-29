@@ -144,7 +144,7 @@ sudo nano /etc/nginx/sites-available/gotta-listen
 \`\`\`
 
 **Add this configuration:**
-```nginx
+\`\`\`nginx
 server {
     listen 80;
     server_name yourdomain.com www.yourdomain.com;

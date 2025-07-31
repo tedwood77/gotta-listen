@@ -1,253 +1,275 @@
 "use client"
 
-import { useState } from "react"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import {
-  Heart,
-  MessageCircle,
-  Share,
-  MapPin,
-  Music,
-  Plus,
-  MoreHorizontal,
-  Edit,
-  Trash2,
-  Flag,
-  Copy,
-} from "lucide-react"
+import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { Heart, MessageCircle, Share2, Send, Music2, MoreHorizontal, Edit, Trash2 } from "lucide-react"
+import { formatDistanceToNow } from "date-fns"
 import Link from "next/link"
-import MusicEmbed from "./music-embed"
-import CommentsSection from "./comments-section"
-import ShareDialog from "./share-dialog"
-import { likePost, unlikePost, deletePost } from "@/app/actions/posts"
+import { useState, useTransition } from "react"
+import { toggleLike, addComment, deletePost } from "@/app/actions/posts"
+import { useToast } from "@/hooks/use-toast"
 
 interface PostCardProps {
   post: any
-  currentUser: any
-  showComments?: boolean
+  currentUser: {
+    id: string
+    username: string
+  }
 }
 
-export default function PostCard({ post, currentUser, showComments = false }: PostCardProps) {
-  const [isLiked, setIsLiked] = useState(false)
-  const [likeCount, setLikeCount] = useState(post.likes?.[0]?.count || 0)
-  const [showCommentsSection, setShowCommentsSection] = useState(showComments)
-  const [isShareDialogOpen, setIsShareDialogOpen] = useState(false)
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
-  const [isLoading, setIsLoading] = useState(false)
+export function PostCard({ post, currentUser }: PostCardProps) {
+  const [showComments, setShowComments] = useState(false)
+  const [newComment, setNewComment] = useState("")
+  const [isLiked, setIsLiked] = useState(post.likes?.some((like: any) => like.user_id === currentUser.id))
+  const [likeCount, setLikeCount] = useState(post.likes?.length || 0)
+  const [isPending, startTransition] = useTransition()
+  const { toast } = useToast()
 
-  const isOwnPost = currentUser?.id === post.user_id
+  const isOwner = post.user_id === currentUser.id
 
-  const handleLike = async () => {
-    try {
-      if (isLiked) {
-        await unlikePost(post.id, currentUser.id)
-        setLikeCount(likeCount - 1)
-      } else {
-        await likePost(post.id, currentUser.id)
-        setLikeCount(likeCount + 1)
+  const handleLike = () => {
+    startTransition(async () => {
+      const result = await toggleLike(post.id, currentUser.id)
+      if (result.success) {
+        setIsLiked(!isLiked)
+        setLikeCount(isLiked ? likeCount - 1 : likeCount + 1)
       }
-      setIsLiked(!isLiked)
-    } catch (error) {
-      console.error("Error toggling like:", error)
+    })
+  }
+
+  const handleComment = async (formData: FormData) => {
+    const result = await addComment(formData)
+    if (result.success) {
+      setNewComment("")
+      toast({
+        title: "Comment added!",
+        description: "Your comment has been posted.",
+      })
+    } else {
+      toast({
+        title: "Error",
+        description: result.error,
+        variant: "destructive",
+      })
     }
   }
 
   const handleDelete = async () => {
-    setIsLoading(true)
-    try {
-      await deletePost(post.id)
-      window.location.reload()
-    } catch (error) {
-      console.error("Error deleting post:", error)
-    } finally {
-      setIsLoading(false)
+    if (confirm("Are you sure you want to delete this post?")) {
+      const result = await deletePost(post.id, currentUser.id)
+      if (result.success) {
+        toast({
+          title: "Post deleted!",
+          description: "Your post has been removed.",
+        })
+      } else {
+        toast({
+          title: "Error",
+          description: result.error,
+          variant: "destructive",
+        })
+      }
     }
   }
 
-  const handleCopyLink = () => {
-    navigator.clipboard.writeText(`${window.location.origin}/post/${post.id}`)
+  const handleShare = () => {
+    if (navigator.share) {
+      navigator.share({
+        title: `${post.title} by ${post.artist}`,
+        text: post.explanation,
+        url: window.location.href,
+      })
+    } else {
+      navigator.clipboard.writeText(window.location.href)
+      toast({
+        title: "Link copied!",
+        description: "Post link copied to clipboard.",
+      })
+    }
   }
 
-  const handleAddToPlaylist = () => {
-    // TODO: Implement add to playlist functionality
-    console.log("Add to playlist")
+  const extractSpotifyId = (url: string) => {
+    const match = url.match(/track\/([a-zA-Z0-9]+)/)
+    return match ? match[1] : null
   }
+
+  const spotifyId = post.spotify_url ? extractSpotifyId(post.spotify_url) : null
 
   return (
-    <Card>
-      <CardHeader>
+    <Card className="w-full music-card shadow-xl hover:shadow-2xl transition-all duration-300 transform hover:scale-[1.02] border-0">
+      <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
-          <Link href={`/profile/${post.users.username}`} className="flex items-center space-x-3">
-            <Avatar>
-              <AvatarImage src={post.users.avatar_url || "/placeholder.svg"} />
-              <AvatarFallback>{post.users.display_name?.charAt(0) || post.users.username?.charAt(0)}</AvatarFallback>
+          <div className="flex items-center space-x-3">
+            <Avatar className="h-12 w-12 ring-2 ring-purple-200 dark:ring-purple-800">
+              <AvatarImage src={post.users?.avatar_url || "/placeholder.svg"} />
+              <AvatarFallback className="bg-gradient-to-br from-purple-400 to-pink-400 text-white">
+                {post.users?.full_name
+                  ?.split(" ")
+                  .map((n: string) => n[0])
+                  .join("")}
+              </AvatarFallback>
             </Avatar>
             <div>
-              <p className="font-semibold">{post.users.display_name}</p>
-              <p className="text-sm text-gray-500">@{post.users.username}</p>
-              {(post.users.city || post.users.state_region || post.users.country) && (
-                <div className="flex items-center text-xs text-gray-400 mt-1">
-                  <MapPin className="w-3 h-3 mr-1" />
-                  {[post.users.city, post.users.state_region, post.users.country].filter(Boolean).join(", ")}
-                </div>
-              )}
+              <Link
+                href={`/profile/${post.users?.username}`}
+                className="font-semibold hover:underline music-gradient-text"
+              >
+                {post.users?.full_name}
+              </Link>
+              <p className="text-sm text-muted-foreground">
+                @{post.users?.username} • {formatDistanceToNow(new Date(post.created_at))} ago
+                {post.updated_at !== post.created_at && " • edited"}
+              </p>
             </div>
-          </Link>
+          </div>
           <div className="flex items-center space-x-2">
-            <div className="text-sm text-gray-500">
-              {new Date(post.created_at).toLocaleDateString()}
-              {post.edited_at && <span className="text-xs text-gray-400 ml-2">(edited)</span>}
-            </div>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm">
-                  <MoreHorizontal className="w-4 h-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={handleCopyLink}>
-                  <Copy className="w-4 h-4 mr-2" />
-                  Copy Link
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setIsShareDialogOpen(true)}>
-                  <Share className="w-4 h-4 mr-2" />
-                  Share Post
-                </DropdownMenuItem>
-                {isOwnPost ? (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem asChild>
-                      <Link href={`/post/${post.id}/edit`}>
-                        <Edit className="w-4 h-4 mr-2" />
-                        Edit Post
-                      </Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => setIsDeleteDialogOpen(true)}
-                      className="text-red-600 focus:text-red-600"
-                    >
-                      <Trash2 className="w-4 h-4 mr-2" />
-                      Delete Post
-                    </DropdownMenuItem>
-                  </>
-                ) : (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem className="text-red-600 focus:text-red-600">
-                      <Flag className="w-4 h-4 mr-2" />
-                      Report Post
-                    </DropdownMenuItem>
-                  </>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <Badge
+              variant="secondary"
+              className="bg-gradient-to-r from-purple-100 to-pink-100 dark:from-purple-900 dark:to-pink-900 text-purple-800 dark:text-purple-200 border-purple-200 dark:border-purple-700"
+            >
+              <Music2 className="w-3 h-3 mr-1" />
+              {post.genres?.name}
+            </Badge>
+            {isOwner && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem asChild>
+                    <Link href={`/edit-post/${post.id}`}>
+                      <Edit className="mr-2 h-4 w-4" />
+                      Edit
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleDelete} className="text-red-600">
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
         </div>
       </CardHeader>
 
       <CardContent className="space-y-4">
-        {/* Song Info */}
-        <div className="bg-gray-50 rounded-lg p-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center space-x-3">
-              <Music className="w-5 h-5 text-purple-600" />
-              <div>
-                <h3 className="font-semibold text-lg">{post.title}</h3>
-                <p className="text-gray-600">by {post.artist}</p>
-              </div>
-            </div>
-            <Button variant="ghost" size="sm" onClick={handleAddToPlaylist}>
-              <Plus className="w-4 h-4" />
-            </Button>
-          </div>
+        <div className="bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-950/50 dark:to-pink-950/50 p-4 rounded-lg border border-purple-100 dark:border-purple-800">
+          <h3 className="text-lg font-semibold music-gradient-text">{post.title}</h3>
+          <p className="text-muted-foreground">by {post.artist}</p>
+        </div>
 
-          <div className="flex items-center space-x-2 mb-3">
-            <Badge variant="secondary">{post.genre}</Badge>
-            {post.tags?.map((tag: string) => (
-              <Badge key={tag} variant="outline">
+        {spotifyId && (
+          <div className="w-full rounded-lg overflow-hidden shadow-lg ring-1 ring-purple-200 dark:ring-purple-800">
+            <iframe
+              src={`https://open.spotify.com/embed/track/${spotifyId}?utm_source=generator&theme=0`}
+              width="100%"
+              height="152"
+              frameBorder="0"
+              allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+              loading="lazy"
+              className="rounded-lg"
+            />
+          </div>
+        )}
+
+        <div className="bg-white/50 dark:bg-gray-800/50 p-4 rounded-lg border border-purple-100 dark:border-purple-800">
+          <p className="text-sm leading-relaxed">{post.explanation}</p>
+        </div>
+
+        {post.tags && post.tags.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {post.tags.map((tag: string, index: number) => (
+              <Badge
+                key={index}
+                variant="outline"
+                className="text-xs bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-950 dark:to-pink-950 border-purple-200 dark:border-purple-700 text-purple-700 dark:text-purple-300"
+              >
                 #{tag}
               </Badge>
             ))}
           </div>
+        )}
 
-          {/* Music Platform Embed */}
-          {post.spotify_url && <MusicEmbed url={post.spotify_url} title={post.title} artist={post.artist} />}
-        </div>
-
-        {/* Explanation */}
-        <div>
-          <h4 className="font-medium mb-2">Why you gotta listen:</h4>
-          <p className="text-gray-700 leading-relaxed">{post.explanation}</p>
-        </div>
-
-        {/* Actions */}
-        <div className="flex items-center justify-between pt-4 border-t">
+        <div className="flex items-center justify-between pt-2 border-t border-purple-100 dark:border-purple-800">
           <div className="flex items-center space-x-4">
-            <Button variant="ghost" size="sm" onClick={handleLike} className={isLiked ? "text-red-500" : ""}>
-              <Heart className={`w-4 h-4 mr-2 ${isLiked ? "fill-current" : ""}`} />
+            <Button
+              variant="ghost"
+              size="sm"
+              className={`transition-all duration-300 ${isLiked ? "text-red-500 bg-red-50 dark:bg-red-950/50" : "hover:bg-purple-50 dark:hover:bg-purple-950/50"}`}
+              onClick={handleLike}
+              disabled={isPending}
+            >
+              <Heart
+                className={`w-4 h-4 mr-1 transition-all duration-300 ${isLiked ? "fill-current scale-110" : ""}`}
+              />
               {likeCount}
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => setShowCommentsSection(!showCommentsSection)}>
-              <MessageCircle className="w-4 h-4 mr-2" />
-              Comment
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => setIsShareDialogOpen(true)}>
-              <Share className="w-4 h-4 mr-2" />
-              Share
+
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowComments(!showComments)}
+              className="hover:bg-purple-50 dark:hover:bg-purple-950/50"
+            >
+              <MessageCircle className="w-4 h-4 mr-1" />
+              {post.comments?.length || 0}
             </Button>
           </div>
+
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleShare}
+            className="hover:bg-purple-50 dark:hover:bg-purple-950/50"
+          >
+            <Share2 className="w-4 h-4" />
+          </Button>
         </div>
 
-        {/* Comments Section - Only show if enabled and currentUser exists */}
-        {showCommentsSection && currentUser && <CommentsSection postId={post.id} currentUser={currentUser} />}
+        {showComments && (
+          <div className="space-y-4 pt-4 border-t border-purple-100 dark:border-purple-800">
+            {post.comments?.map((comment: any) => (
+              <div key={comment.id} className="flex space-x-3 bg-purple-50/50 dark:bg-purple-950/20 p-3 rounded-lg">
+                <Avatar className="h-8 w-8 ring-1 ring-purple-200 dark:ring-purple-800">
+                  <AvatarImage src={comment.users?.avatar_url || "/placeholder.svg"} />
+                  <AvatarFallback className="bg-gradient-to-br from-purple-300 to-pink-300 text-white text-xs">
+                    {comment.users?.full_name
+                      ?.split(" ")
+                      .map((n: string) => n[0])
+                      .join("")}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="flex-1">
+                  <p className="text-sm font-medium music-gradient-text">{comment.users?.full_name}</p>
+                  <p className="text-sm text-muted-foreground">{comment.content}</p>
+                </div>
+              </div>
+            ))}
+
+            <form action={handleComment} className="flex space-x-2">
+              <input type="hidden" name="postId" value={post.id} />
+              <input type="hidden" name="userId" value={currentUser.id} />
+              <Input
+                name="content"
+                placeholder="Add a comment..."
+                value={newComment}
+                onChange={(e) => setNewComment(e.target.value)}
+                className="flex-1 bg-white/50 dark:bg-gray-800/50 border-purple-200 dark:border-purple-800 focus:border-purple-400 dark:focus:border-purple-600"
+              />
+              <Button type="submit" size="sm" disabled={!newComment.trim()} className="music-button">
+                <Send className="w-4 h-4" />
+              </Button>
+            </form>
+          </div>
+        )}
       </CardContent>
-
-      {/* Share Dialog */}
-      <ShareDialog
-        post={post}
-        isOpen={isShareDialogOpen}
-        onClose={() => setIsShareDialogOpen(false)}
-        currentUser={currentUser}
-      />
-
-      {/* Delete Confirmation Dialog */}
-      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Post</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete this post? This action cannot be undone and will remove the post from all
-              playlists and delete all comments.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} disabled={isLoading} className="bg-red-600 hover:bg-red-700">
-              {isLoading ? "Deleting..." : "Delete Post"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </Card>
   )
 }

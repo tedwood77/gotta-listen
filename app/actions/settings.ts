@@ -1,118 +1,155 @@
 "use server"
 
-import { redirect } from "next/navigation"
-import { cookies } from "next/headers"
 import { createServerClient } from "@/lib/supabase"
+import { revalidatePath } from "next/cache"
 
 export async function updateProfile(formData: FormData) {
   const userId = formData.get("userId") as string
-  const username = formData.get("username") as string
-  const displayName = formData.get("displayName") as string
-  const email = formData.get("email") as string
+  const fullName = formData.get("fullName") as string
   const bio = formData.get("bio") as string
   const country = formData.get("country") as string
   const state = formData.get("state") as string
   const city = formData.get("city") as string
-  const customCity = formData.get("customCity") as string
-  const favoriteGenres = JSON.parse(formData.get("favoriteGenres") as string)
+
+  if (!fullName || fullName.trim().length < 1) {
+    return { error: "Full name is required" }
+  }
+
+  if (fullName.length > 100) {
+    return { error: "Full name must be less than 100 characters" }
+  }
+
+  if (bio && bio.length > 500) {
+    return { error: "Bio must be less than 500 characters" }
+  }
 
   const supabase = createServerClient()
 
-  const { error } = await supabase
-    .from("users")
-    .update({
-      username,
-      display_name: displayName,
-      email,
-      bio: bio || null,
-      country: country || null,
-      state_region: state || null,
-      city: city || customCity || null,
-      favorite_genres: favoriteGenres,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", userId)
+  try {
+    const { error } = await supabase
+      .from("users")
+      .update({
+        full_name: fullName.trim(),
+        bio: bio?.trim() || null,
+        country: country?.trim() || null,
+        state: state?.trim() || null,
+        city: city?.trim() || null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", userId)
 
-  if (error) {
-    if (error.message.includes("duplicate key")) {
-      return {
-        error: "Username is already taken. Please choose a different username.",
-      }
+    if (error) {
+      console.error("Error updating profile:", error)
+      return { error: "Failed to update profile. Please try again." }
     }
-    return {
-      error: "Failed to update profile. Please try again.",
-    }
+
+    revalidatePath("/settings")
+    return { success: true, message: "Profile updated successfully!" }
+  } catch (error) {
+    console.error("Error updating profile:", error)
+    return { error: "Something went wrong. Please try again." }
   }
-
-  redirect("/settings?updated=profile")
 }
 
-export async function updatePrivacySettings(userId: string, privacySettings: any) {
+export async function updatePrivacySettings(formData: FormData) {
+  const userId = formData.get("userId") as string
+  const profileVisibility = formData.get("profileVisibility") as string
+  const friendsListVisibility = formData.get("friendsListVisibility") as string
+  const likedSongsVisibility = formData.get("likedSongsVisibility") as string
+  const showLocation = formData.get("showLocation") === "on"
+  const allowFriendRequests = formData.get("allowFriendRequests") === "on"
+  const showActivityStatus = formData.get("showActivityStatus") === "on"
+
   const supabase = createServerClient()
 
-  const { error } = await supabase
-    .from("users")
-    .update({
-      privacy_settings: privacySettings,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", userId)
+  try {
+    const { error } = await supabase
+      .from("users")
+      .update({
+        profile_visibility: profileVisibility,
+        friends_list_visibility: friendsListVisibility,
+        liked_songs_visibility: likedSongsVisibility,
+        show_location: showLocation,
+        allow_friend_requests: allowFriendRequests,
+        show_activity_status: showActivityStatus,
+      })
+      .eq("id", userId)
 
-  if (error) {
-    return {
-      error: "Failed to update privacy settings. Please try again.",
+    if (error) {
+      console.error("Error updating privacy settings:", error)
+      return { error: "Failed to update privacy settings. Please try again." }
     }
-  }
 
-  return { success: true }
+    revalidatePath("/settings")
+    return { success: true, message: "Privacy settings updated successfully!" }
+  } catch (error) {
+    console.error("Error updating privacy settings:", error)
+    return { error: "Something went wrong. Please try again." }
+  }
 }
 
-export async function deleteAccount(userId: string) {
+export async function updateNotificationSettings(formData: FormData) {
+  const userId = formData.get("userId") as string
+  const emailNotifications = formData.get("emailNotifications") === "on"
+  const friendRequestNotifications = formData.get("friendRequestNotifications") === "on"
+  const commentNotifications = formData.get("commentNotifications") === "on"
+  const likeNotifications = formData.get("likeNotifications") === "on"
+  const weeklyDigest = formData.get("weeklyDigest") === "on"
+
   const supabase = createServerClient()
 
-  // Delete user account (cascade will handle related data)
-  const { error } = await supabase.from("users").delete().eq("id", userId)
+  try {
+    const { error } = await supabase
+      .from("users")
+      .update({
+        email_notifications: emailNotifications,
+        friend_request_notifications: friendRequestNotifications,
+        comment_notifications: commentNotifications,
+        like_notifications: likeNotifications,
+        weekly_digest: weeklyDigest,
+      })
+      .eq("id", userId)
 
-  if (error) {
-    return {
-      error: "Failed to delete account. Please try again or contact support.",
+    if (error) {
+      console.error("Error updating notification settings:", error)
+      return { error: "Failed to update notification settings. Please try again." }
     }
+
+    revalidatePath("/settings")
+    return { success: true, message: "Notification settings updated successfully!" }
+  } catch (error) {
+    console.error("Error updating notification settings:", error)
+    return { error: "Something went wrong. Please try again." }
   }
-
-  // Clear session
-  const cookieStore = await cookies()
-  cookieStore.delete("session")
-
-  redirect("/")
 }
 
-export async function blockUser(blockerId: string, blockedId: string) {
+export async function updateAppearanceSettings(formData: FormData) {
+  const userId = formData.get("userId") as string
+  const theme = formData.get("theme") as string
+  const compactMode = formData.get("compactMode") === "on"
+  const autoPlayMusic = formData.get("autoPlayMusic") === "on"
+
   const supabase = createServerClient()
 
-  const { error } = await supabase.from("user_blocks").insert({
-    blocker_id: blockerId,
-    blocked_id: blockedId,
-  })
+  try {
+    const { error } = await supabase
+      .from("users")
+      .update({
+        theme,
+        compact_mode: compactMode,
+        auto_play_music: autoPlayMusic,
+      })
+      .eq("id", userId)
 
-  if (error) {
-    return {
-      error: "Failed to block user. Please try again.",
+    if (error) {
+      console.error("Error updating appearance settings:", error)
+      return { error: "Failed to update appearance settings. Please try again." }
     }
+
+    revalidatePath("/settings")
+    return { success: true, message: "Appearance settings updated successfully!" }
+  } catch (error) {
+    console.error("Error updating appearance settings:", error)
+    return { error: "Something went wrong. Please try again." }
   }
-
-  return { success: true }
-}
-
-export async function unblockUser(blockerId: string, blockedId: string) {
-  const supabase = createServerClient()
-
-  const { error } = await supabase.from("user_blocks").delete().eq("blocker_id", blockerId).eq("blocked_id", blockedId)
-
-  if (error) {
-    return {
-      error: "Failed to unblock user. Please try again.",
-    }
-  }
-
-  return { success: true }
 }

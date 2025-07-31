@@ -1,108 +1,106 @@
 "use client"
 
-import { useState } from "react"
-import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Badge } from "@/components/ui/badge"
-import { X, Globe, Users, Lock, ExternalLink } from "lucide-react"
 import { updatePost } from "@/app/actions/posts"
-import { detectMusicPlatform } from "@/lib/music-platforms"
-
-const genres = [
-  "Rock",
-  "Pop",
-  "Hip Hop",
-  "Electronic",
-  "Jazz",
-  "Classical",
-  "Country",
-  "R&B",
-  "Indie",
-  "Alternative",
-  "Folk",
-  "Reggae",
-  "Blues",
-  "Metal",
-]
+import { FormError } from "@/components/form-error"
+import { FormSuccess } from "@/components/form-success"
+import { Music, Edit } from "lucide-react"
+import { useState, useTransition } from "react"
 
 interface EditPostFormProps {
+  user: {
+    id: string
+    username: string
+  }
   post: any
-  userId: string
+  genres: any[]
 }
 
-export default function EditPostForm({ post, userId }: EditPostFormProps) {
-  const [tags, setTags] = useState<string[]>(post.tags || [])
-  const [tagInput, setTagInput] = useState("")
-  const [isLoading, setIsLoading] = useState(false)
-  const [musicUrl, setMusicUrl] = useState(post.spotify_url || "")
-  const [detectedPlatform, setDetectedPlatform] = useState<any>(
-    post.spotify_url ? detectMusicPlatform(post.spotify_url) : null,
-  )
-
-  const addTag = () => {
-    if (tagInput.trim() && !tags.includes(tagInput.trim())) {
-      setTags([...tags, tagInput.trim()])
-      setTagInput("")
-    }
-  }
-
-  const removeTag = (tagToRemove: string) => {
-    setTags(tags.filter((tag) => tag !== tagToRemove))
-  }
-
-  const handleMusicUrlChange = (url: string) => {
-    setMusicUrl(url)
-    const platform = detectMusicPlatform(url)
-    setDetectedPlatform(platform)
-  }
+export function EditPostForm({ user, post, genres }: EditPostFormProps) {
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
+  const [isPending, startTransition] = useTransition()
 
   const handleSubmit = async (formData: FormData) => {
-    setIsLoading(true)
-
-    // Add tags and post ID to form data
-    formData.append("tags", JSON.stringify(tags))
-    formData.append("postId", post.id)
-    formData.append("userId", userId)
-
-    try {
-      await updatePost(formData)
-    } finally {
-      setIsLoading(false)
-    }
+    setError(null)
+    setSuccess(null)
+    startTransition(async () => {
+      const result = await updatePost(formData)
+      if (result?.error) {
+        setError(result.error)
+      } else if (result?.success) {
+        setSuccess(result.message || "Post updated successfully!")
+      }
+    })
   }
 
   return (
-    <Card>
+    <Card className="music-card shadow-2xl">
       <CardHeader>
-        <CardTitle>Edit Your Post</CardTitle>
+        <CardTitle className="flex items-center music-gradient-text">
+          <Edit className="w-6 h-6 mr-2" />
+          Edit Your Post
+        </CardTitle>
       </CardHeader>
       <CardContent>
+        <FormError error={error} />
+        <FormSuccess message={success} />
+
         <form action={handleSubmit} className="space-y-6">
-          <div className="grid grid-cols-2 gap-4">
+          <input type="hidden" name="postId" value={post.id} />
+          <input type="hidden" name="userId" value={user.id} />
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="title">Song Title</Label>
-              <Input id="title" name="title" defaultValue={post.title} required />
+              <Label htmlFor="title" className="text-purple-800 dark:text-purple-200">
+                Song Title *
+              </Label>
+              <Input
+                id="title"
+                name="title"
+                required
+                disabled={isPending}
+                defaultValue={post.title}
+                maxLength={200}
+                className="bg-white/50 dark:bg-gray-800/50 border-purple-200 dark:border-purple-800 focus:border-purple-400 dark:focus:border-purple-600"
+              />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="artist">Artist</Label>
-              <Input id="artist" name="artist" defaultValue={post.artist} required />
+              <Label htmlFor="artist" className="text-purple-800 dark:text-purple-200">
+                Artist *
+              </Label>
+              <Input
+                id="artist"
+                name="artist"
+                required
+                disabled={isPending}
+                defaultValue={post.artist}
+                maxLength={200}
+                className="bg-white/50 dark:bg-gray-800/50 border-purple-200 dark:border-purple-800 focus:border-purple-400 dark:focus:border-purple-600"
+              />
             </div>
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="genre">Genre</Label>
-            <Select name="genre" defaultValue={post.genre} required>
-              <SelectTrigger>
+            <Label htmlFor="genre" className="text-purple-800 dark:text-purple-200">
+              Genre *
+            </Label>
+            <Select name="genreId" required defaultValue={post.genre_id?.toString()} disabled={isPending}>
+              <SelectTrigger className="bg-white/50 dark:bg-gray-800/50 border-purple-200 dark:border-purple-800 focus:border-purple-400 dark:focus:border-purple-600">
                 <SelectValue placeholder="Select a genre" />
               </SelectTrigger>
               <SelectContent>
-                {genres.map((genre) => (
-                  <SelectItem key={genre} value={genre}>
-                    {genre}
+                {genres?.map((genre) => (
+                  <SelectItem key={genre.id} value={genre.id.toString()}>
+                    <div className="flex items-center space-x-2">
+                      <Music className="w-4 h-4 text-purple-500" />
+                      <span>{genre.name}</span>
+                    </div>
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -110,110 +108,63 @@ export default function EditPostForm({ post, userId }: EditPostFormProps) {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="visibility">Post Visibility</Label>
-            <Select name="visibility" defaultValue={post.visibility} required>
-              <SelectTrigger>
-                <SelectValue placeholder="Select visibility" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="public">
-                  <div className="flex items-center gap-2">
-                    <Globe className="w-4 h-4" />
-                    Public - Everyone can see
-                  </div>
-                </SelectItem>
-                <SelectItem value="friends">
-                  <div className="flex items-center gap-2">
-                    <Users className="w-4 h-4" />
-                    Friends Only
-                  </div>
-                </SelectItem>
-                <SelectItem value="private">
-                  <div className="flex items-center gap-2">
-                    <Lock className="w-4 h-4" />
-                    Private - Only you can see
-                  </div>
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="musicUrl">Music Platform URL</Label>
+            <Label htmlFor="spotifyUrl" className="text-purple-800 dark:text-purple-200">
+              Spotify URL (optional)
+            </Label>
             <Input
-              id="musicUrl"
-              name="musicUrl"
-              value={musicUrl}
-              onChange={(e) => handleMusicUrlChange(e.target.value)}
-              placeholder="Paste link from Spotify, Apple Music, YouTube Music, SoundCloud, Bandcamp, or Tidal..."
+              id="spotifyUrl"
+              name="spotifyUrl"
+              placeholder="https://open.spotify.com/track/..."
+              disabled={isPending}
+              defaultValue={post.spotify_url || ""}
+              className="bg-white/50 dark:bg-gray-800/50 border-purple-200 dark:border-purple-800 focus:border-purple-400 dark:focus:border-purple-600"
             />
-            {detectedPlatform && (
-              <div className="flex items-center space-x-2 text-sm">
-                <span className="text-green-600">✓ Detected:</span>
-                <span style={{ color: detectedPlatform.config.color }}>
-                  {detectedPlatform.config.icon} {detectedPlatform.config.name}
-                </span>
-                <Button asChild variant="ghost" size="sm">
-                  <a href={musicUrl} target="_blank" rel="noopener noreferrer">
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-                </Button>
-              </div>
-            )}
           </div>
 
           <div className="space-y-2">
-            <Label>Tags</Label>
-            <div className="flex space-x-2">
-              <Input
-                value={tagInput}
-                onChange={(e) => setTagInput(e.target.value)}
-                placeholder="Add a tag..."
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault()
-                    addTag()
-                  }
-                }}
-              />
-              <Button type="button" onClick={addTag} variant="outline">
-                Add
-              </Button>
-            </div>
-            {tags.length > 0 && (
-              <div className="flex flex-wrap gap-2 mt-2">
-                {tags.map((tag) => (
-                  <Badge key={tag} variant="secondary" className="flex items-center gap-1">
-                    #{tag}
-                    <X className="w-3 h-3 cursor-pointer" onClick={() => removeTag(tag)} />
-                  </Badge>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="explanation">Why should people listen to this?</Label>
+            <Label htmlFor="explanation" className="text-purple-800 dark:text-purple-200">
+              Why is this song worth listening to? *
+            </Label>
             <Textarea
               id="explanation"
               name="explanation"
-              rows={6}
-              defaultValue={post.explanation}
-              placeholder="Share what makes this song special, the story behind it, or why it resonates with you..."
+              rows={4}
+              placeholder="Share what makes this song special..."
               required
+              disabled={isPending}
+              defaultValue={post.explanation}
+              minLength={10}
+              className="bg-white/50 dark:bg-gray-800/50 border-purple-200 dark:border-purple-800 focus:border-purple-400 dark:focus:border-purple-600"
             />
+            <p className="text-xs text-muted-foreground">At least 10 characters required</p>
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="editReason">Edit Reason (optional)</Label>
-            <Input id="editReason" name="editReason" placeholder="Brief reason for editing this post..." />
+            <Label htmlFor="tags" className="text-purple-800 dark:text-purple-200">
+              Tags (comma-separated)
+            </Label>
+            <Input
+              id="tags"
+              name="tags"
+              placeholder="indie, chill, summer, vocals"
+              disabled={isPending}
+              defaultValue={post.tags?.join(", ") || ""}
+              className="bg-white/50 dark:bg-gray-800/50 border-purple-200 dark:border-purple-800 focus:border-purple-400 dark:focus:border-purple-600"
+            />
           </div>
 
           <div className="flex space-x-4">
-            <Button type="submit" disabled={isLoading} className="flex-1">
-              {isLoading ? "Updating..." : "Update Post"}
+            <Button type="submit" className="flex-1 music-button" disabled={isPending}>
+              <Edit className="w-4 h-4 mr-2" />
+              {isPending ? "Updating..." : "Update Post"}
             </Button>
-            <Button type="button" variant="outline" onClick={() => window.history.back()}>
+            <Button
+              type="button"
+              variant="outline"
+              className="flex-1 bg-transparent"
+              onClick={() => window.history.back()}
+              disabled={isPending}
+            >
               Cancel
             </Button>
           </div>

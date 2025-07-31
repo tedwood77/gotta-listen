@@ -1,186 +1,163 @@
 "use client"
 
-import { useState } from "react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader } from "@/components/ui/card"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import Link from "next/link"
-import { useRouter } from "next/navigation"
-import PostCard from "./post-card"
-import GoogleAdSpace from "./google-ad-space"
-import AdPolicyBanner from "./ad-policy-banner"
-import { countries } from "@/lib/locations"
+import { useState, useEffect } from "react"
+import { PostCard } from "./post-card"
+import { FeedFilters } from "./feed-filters"
+import { AdSenseAd } from "./adsense-ad"
+import { SpotifyIntegration } from "./spotify-integration"
+import { getSupabaseClient } from "@/lib/supabase"
 
 interface FeedContentProps {
-  posts: any[]
-  currentUser: any
+  user: {
+    id: string
+    username: string
+    full_name: string
+    country?: string
+    state?: string
+    city?: string
+  }
+  initialPosts: any[]
+  genres: any[]
+  isSpotifyConnected: boolean
 }
 
-const genres = [
-  "All",
-  "Rock",
-  "Pop",
-  "Hip Hop",
-  "Electronic",
-  "Jazz",
-  "Classical",
-  "Country",
-  "R&B",
-  "Indie",
-  "Alternative",
-  "Folk",
-  "Reggae",
-  "Blues",
-  "Metal",
-]
-
-export default function FeedContent({ posts, currentUser }: FeedContentProps) {
-  const router = useRouter()
-  const [selectedGenre, setSelectedGenre] = useState("All")
-  const [selectedLocation, setSelectedLocation] = useState("All")
-  const [showFriendsOnly, setShowFriendsOnly] = useState(false)
-
-  const handleFilterChange = (type: string, value: string) => {
-    const params = new URLSearchParams()
-
-    if (type === "genre" && value !== "All") {
-      params.set("genre", value)
-    }
-
-    if (type === "location" && value !== "All") {
-      const [country, state, city] = value.split("|")
-      if (country) params.set("country", country)
-      if (state) params.set("state", state)
-      if (city) params.set("city", city)
-    }
-
-    if (type === "friends") {
-      params.set("friends", "true")
-    }
-
-    router.push(`/feed?${params.toString()}`)
-  }
-
-  // Insert Google Ads at strategic positions
-  const postsWithAds = []
-
-  // Top leaderboard ad (728x90)
-  postsWithAds.push(<GoogleAdSpace key="ad-top" adSlot="1234567890" position="feed-top" adFormat="horizontal" />)
-
-  // Add posts with ads interspersed
-  posts.forEach((post, index) => {
-    postsWithAds.push(<PostCard key={post.id} post={post} currentUser={currentUser} />)
-
-    // Medium rectangle ad after 3rd post (336x280)
-    if (index === 2) {
-      postsWithAds.push(
-        <GoogleAdSpace key="ad-middle" adSlot="2345678901" position="feed-middle" adFormat="rectangle" />,
-      )
-    }
-
-    // Bottom leaderboard ad after 7th post (728x90)
-    if (index === 6) {
-      postsWithAds.push(
-        <GoogleAdSpace key="ad-bottom" adSlot="3456789012" position="feed-bottom" adFormat="horizontal" />,
-      )
-    }
-
-    // Additional medium rectangle ads every 8 posts
-    if (index > 6 && (index - 6) % 8 === 0) {
-      postsWithAds.push(
-        <GoogleAdSpace key={`ad-recurring-${index}`} adSlot="4567890123" position="feed-middle" adFormat="rectangle" />,
-      )
-    }
+export function FeedContent({ user, initialPosts, genres, isSpotifyConnected }: FeedContentProps) {
+  const [posts, setPosts] = useState(initialPosts)
+  const [loading, setLoading] = useState(false)
+  const [filters, setFilters] = useState({
+    feedType: "global",
+    location: "all",
+    genres: [] as string[],
   })
 
+  const supabase = getSupabaseClient()
+
+  useEffect(() => {
+    fetchFilteredPosts()
+  }, [filters])
+
+  const fetchFilteredPosts = async () => {
+    setLoading(true)
+    try {
+      let query = supabase.from("posts").select(`
+          *,
+          users (username, full_name, avatar_url, country, state, city),
+          genres (name),
+          likes (id, user_id),
+          comments (id, content, users (username, full_name))
+        `)
+
+      // Apply feed type filter
+      if (filters.feedType === "friends") {
+        // Get user's friends first
+        const { data: friendships } = await supabase
+          .from("friendships")
+          .select("requester_id, addressee_id")
+          .or(`requester_id.eq.${user.id},addressee_id.eq.${user.id}`)
+          .eq("status", "accepted")
+
+        const friendIds = friendships?.map((f) => (f.requester_id === user.id ? f.addressee_id : f.requester_id)) || []
+
+        if (friendIds.length > 0) {
+          query = query.in("user_id", [...friendIds, user.id])
+        } else {
+          query = query.eq("user_id", user.id)
+        }
+      }
+
+      // Apply location filter
+      if (filters.location !== "all" && user.country) {
+        if (filters.location === "country") {
+          query = query.eq("users.country", user.country)
+        } else if (filters.location === "state" && user.state) {
+          query = query.eq("users.state", user.state)
+        } else if (filters.location === "city" && user.city) {
+          query = query.eq("users.city", user.city)
+        }
+      }
+
+      // Apply genre filter
+      if (filters.genres.length > 0) {
+        query = query.in(
+          "genre_id",
+          filters.genres.map((id) => Number.parseInt(id)),
+        )
+      }
+
+      const { data: filteredPosts } = await query.order("created_at", { ascending: false }).limit(20)
+
+      setPosts(filteredPosts || [])
+    } catch (error) {
+      console.error("Error fetching filtered posts:", error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
-    <>
-      <div className="container mx-auto px-4 py-8">
-        {/* Mobile banner ad (320x50) */}
-        <GoogleAdSpace adSlot="5678901234" position="mobile-banner" adFormat="horizontal" />
+    <div className="container mx-auto px-4 py-6">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        <div className="lg:col-span-1 space-y-6">
+          <SpotifyIntegration isConnected={isSpotifyConnected} />
+          <FeedFilters genres={genres} onFilterChange={setFilters} />
 
-        <div className="flex gap-8">
-          {/* Sidebar Filters */}
-          <div className="w-64 space-y-6">
-            <Card>
-              <CardHeader>
-                <h3 className="font-semibold">Filters</h3>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <label className="text-sm font-medium mb-2 block">Genre</label>
-                  <Select onValueChange={(value) => handleFilterChange("genre", value)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="All Genres" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {genres.map((genre) => (
-                        <SelectItem key={genre} value={genre}>
-                          {genre}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div>
-                  <label className="text-sm font-medium mb-2 block">Location</label>
-                  <Select onValueChange={(value) => handleFilterChange("location", value)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="All Locations" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="All">All Locations</SelectItem>
-                      {countries.map((country) => (
-                        <SelectItem key={country.code} value={country.code}>
-                          {country.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <Button
-                  variant={showFriendsOnly ? "default" : "outline"}
-                  className="w-full"
-                  onClick={() => {
-                    setShowFriendsOnly(!showFriendsOnly)
-                    if (!showFriendsOnly) {
-                      handleFilterChange("friends", "true")
-                    } else {
-                      router.push("/feed")
-                    }
-                  }}
-                >
-                  Friends Only
-                </Button>
-              </CardContent>
-            </Card>
-
-            {/* Sidebar medium rectangle ad (300x250) */}
-            <GoogleAdSpace adSlot="6789012345" position="sidebar" adFormat="rectangle" />
-          </div>
-
-          {/* Main Feed */}
-          <div className="flex-1 space-y-6">
-            {posts.length === 0 ? (
-              <Card>
-                <CardContent className="text-center py-12">
-                  <p className="text-gray-500 mb-4">No posts found with current filters</p>
-                  <Link href="/post/new">
-                    <Button>Share Your First Song</Button>
-                  </Link>
-                </CardContent>
-              </Card>
-            ) : (
-              postsWithAds
-            )}
+          {/* Stylish Sidebar Ad - Only on desktop */}
+          <div className="hidden lg:block">
+            <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-purple-100 to-pink-100 dark:from-purple-900/20 dark:to-pink-900/20 p-1">
+              <div className="absolute inset-0 bg-gradient-to-br from-purple-400/20 to-pink-400/20 rounded-xl"></div>
+              <div className="relative bg-white/80 dark:bg-gray-900/80 rounded-lg p-2">
+                <AdSenseAd
+                  adSlot="2345678901"
+                  adFormat="auto"
+                  style={{ display: "block", width: "280px", minHeight: "250px" }}
+                />
+              </div>
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Ad Policy Banner */}
-      <AdPolicyBanner />
-    </>
+        <div className="lg:col-span-3 space-y-6">
+          {loading && (
+            <div className="text-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600 mx-auto"></div>
+              <p className="text-muted-foreground mt-2">Loading posts...</p>
+            </div>
+          )}
+
+          {!loading &&
+            posts.map((post, index) => (
+              <div key={post.id}>
+                <PostCard post={post} currentUser={user} />
+
+                {/* Stylish In-Feed Ad - Every 6 posts (less frequent) */}
+                {(index + 1) % 6 === 0 && (
+                  <div className="my-8">
+                    <div className="relative overflow-hidden rounded-xl bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-950/30 dark:to-pink-950/30 p-4">
+                      <div className="absolute top-2 left-2 text-xs text-purple-600 dark:text-purple-400 font-medium">
+                        Sponsored
+                      </div>
+                      <div className="mt-4">
+                        <AdSenseAd
+                          adSlot="3456789012"
+                          adFormat="auto"
+                          style={{ display: "block", minHeight: "200px", width: "100%" }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+
+          {!loading && posts.length === 0 && (
+            <div className="text-center py-12">
+              <div className="text-6xl mb-4">🎵</div>
+              <h3 className="text-lg font-semibold mb-2">No posts found</h3>
+              <p className="text-muted-foreground">Try adjusting your filters or check back later!</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   )
 }

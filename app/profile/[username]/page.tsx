@@ -1,21 +1,16 @@
-import { notFound, redirect } from "next/navigation"
-import { getUser } from "@/lib/auth"
 import { createServerClient } from "@/lib/supabase"
-import Navbar from "@/components/navbar"
-import ProfileContent from "@/components/profile-content"
+import { requireAuth } from "@/lib/auth"
+import { Navigation } from "@/components/navigation"
+import { ProfileContent } from "@/components/profile-content"
+import { notFound } from "next/navigation"
 
-export default async function ProfilePage({
-  params,
-}: {
+interface ProfilePageProps {
   params: Promise<{ username: string }>
-}) {
-  const currentUser = await getUser()
+}
+
+export default async function ProfilePage({ params }: ProfilePageProps) {
   const { username } = await params
-
-  if (!currentUser) {
-    redirect("/")
-  }
-
+  const currentUser = await requireAuth()
   const supabase = createServerClient()
 
   // Get profile user
@@ -25,43 +20,23 @@ export default async function ProfilePage({
     notFound()
   }
 
-  // Get current user profile
-  const { data: currentUserProfile } = await supabase.from("users").select("*").eq("id", currentUser.id).single()
+  const isOwnProfile = currentUser.id === profileUser.id
+  const isFriend = await checkFriendship(currentUser.id, profileUser.id, supabase)
 
   // Get user's posts
   const { data: posts } = await supabase
     .from("posts")
     .select(`
       *,
-      users!posts_user_id_fkey (
-        id,
-        username,
-        display_name,
-        avatar_url
-      ),
-      likes (count)
+      users (username, full_name, avatar_url),
+      genres (name),
+      likes (id),
+      comments (id, content, users (username, full_name))
     `)
     .eq("user_id", profileUser.id)
     .order("created_at", { ascending: false })
 
-  // Get user's liked posts
-  const { data: likedPosts } = await supabase
-    .from("likes")
-    .select(`
-      posts (
-        *,
-        users!posts_user_id_fkey (
-          id,
-          username,
-          display_name,
-          avatar_url
-        ),
-        likes (count)
-      )
-    `)
-    .eq("user_id", profileUser.id)
-
-  // Check friendship status
+  // Get friendship status
   const { data: friendship } = await supabase
     .from("friendships")
     .select("*")
@@ -70,16 +45,93 @@ export default async function ProfilePage({
     )
     .single()
 
+  // Get user's liked genres
+  const { data: likedGenres } = await supabase.from("user_genres").select("genres (name)").eq("user_id", profileUser.id)
+
+  // Get friends count
+  const { count: friendsCount } = await supabase
+    .from("friendships")
+    .select("*", { count: "exact" })
+    .or(`requester_id.eq.${profileUser.id},addressee_id.eq.${profileUser.id}`)
+    .eq("status", "accepted")
+
+  // Check privacy settings for liked songs
+  const canViewLikedSongs =
+    isOwnProfile ||
+    profileUser.liked_songs_visibility === "public" ||
+    (profileUser.liked_songs_visibility === "friends" && isFriend)
+
+  // Check privacy settings for friends list
+  const canViewFriends =
+    isOwnProfile ||
+    profileUser.friends_list_visibility === "public" ||
+    (profileUser.friends_list_visibility === "friends" && isFriend)
+
+  // Get liked songs if allowed
+  let likedSongs: any[] = []
+  if (canViewLikedSongs) {
+    const { data } = await supabase
+      .from("liked_songs")
+      .select(`
+        *,
+        posts (
+          *,
+          users (username, full_name, avatar_url),
+          genres (name),
+          likes (id),
+          comments (id, content, users (username, full_name))
+        )
+      `)
+      .eq("user_id", profileUser.id)
+      .order("created_at", { ascending: false })
+
+    likedSongs = data || []
+  }
+
+  // Get friends if allowed
+  let friends: any[] = []
+  if (canViewFriends) {
+    const { data } = await supabase
+      .from("friendships")
+      .select(`
+        *,
+        requester:users!friendships_requester_id_fkey (id, username, full_name, avatar_url),
+        addressee:users!friendships_addressee_id_fkey (id, username, full_name, avatar_url)
+      `)
+      .or(`requester_id.eq.${profileUser.id},addressee_id.eq.${profileUser.id}`)
+      .eq("status", "accepted")
+
+    friends = data || []
+  }
+
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Navbar user={currentUserProfile} />
+    <div className="min-h-screen bg-background">
+      <Navigation user={currentUser} />
       <ProfileContent
         profileUser={profileUser}
-        currentUser={currentUserProfile}
+        currentUser={currentUser}
         posts={posts || []}
-        likedPosts={likedPosts?.map((l) => l.posts).filter(Boolean) || []}
+        likedSongs={likedSongs}
+        friends={friends}
         friendship={friendship}
+        likedGenres={likedGenres || []}
+        friendsCount={friendsCount || 0}
+        canViewFriends={canViewFriends}
+        canViewLikedSongs={canViewLikedSongs}
       />
     </div>
   )
+}
+
+async function checkFriendship(userId1: string, userId2: string, supabase: any) {
+  const { data } = await supabase
+    .from("friendships")
+    .select("status")
+    .or(
+      `and(requester_id.eq.${userId1},addressee_id.eq.${userId2}),and(requester_id.eq.${userId2},addressee_id.eq.${userId1})`,
+    )
+    .eq("status", "accepted")
+    .single()
+
+  return !!data
 }
